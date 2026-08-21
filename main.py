@@ -82,14 +82,42 @@ def analyze_script(script_text: str) -> dict:
         system=system_prompt,
         messages=[{"role": "user", "content": script_text[:8000]}],
     )
-    raw = message.content[0].text.strip()
-    data = json.loads(raw)
+
+    # Join all text blocks (there should just be one, but be defensive)
+    raw = "".join(
+        block.text for block in message.content if getattr(block, "type", None) == "text"
+    ).strip()
+
+    if not raw:
+        raise ValueError(f"Empty response from model (stop_reason={message.stop_reason})")
+
+    # Strip markdown code fences if the model wrapped the JSON despite instructions
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Last resort: pull out the first {...} block in case there's stray
+        # preamble/postamble text around the JSON
+        import re
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            raise ValueError(f"Could not find JSON in model response: {raw[:300]}")
+        data = json.loads(match.group(0))
 
     # Guard against the model drifting outside allowed values
     if data.get("tag") not in VALID_TAGS:
         data["tag"] = "CULTURE"
     if data.get("theme") not in PALETTES:
         data["theme"] = "dark"
+    if not data.get("title"):
+        data["title"] = "YOUR TOPIC HERE"
+    if not data.get("image_prompt"):
+        data["image_prompt"] = "abstract dark symbolic background, cinematic, no text"
     return data
 
 
