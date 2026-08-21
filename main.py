@@ -11,19 +11,20 @@ import os
 import io
 import base64
 import uuid
+import shutil
 from datetime import datetime, timezone
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
-from huggingface_hub import InferenceClient
+from gradio_client import Client
 from supabase import create_client
 
 app = FastAPI()
 
 # Set these in Render's environment variables (Dashboard -> Environment tab):
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+HF_TOKEN = os.environ.get("HF_TOKEN", "")  # optional now, but keeps you signed-in for higher free quota
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")  # service_role key, backend-only
-MODEL = "black-forest-labs/FLUX.1-schnell"
+SPACE = "black-forest-labs/FLUX.1-schnell"  # official free Space - no billing to your account
 BUCKET = "thumbnails"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
@@ -117,42 +118,49 @@ def template_tool():
 
 @app.post("/generate", response_class=HTMLResponse)
 def generate(prompt: str = Form(...)):
-    if not HF_TOKEN:
-        return PAGE.format(prompt=prompt, result="<p class='status'>ERROR: HF_TOKEN not set on the server.</p>", history=render_history())
-
     try:
-        client = InferenceClient(api_key=HF_TOKEN, provider="auto")
-        image = client.text_to_image(prompt, model=MODEL)
-
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        image_bytes = buf.getvalue()
-
-        # Show it immediately
-        b64 = base64.b64encode(image_bytes).decode("utf-8")
-        result = f'<img src="data:image/png;base64,{b64}" /><a class="btn secondary" download="thumbnail.png" href="data:image/png;base64,{b64}">Download</a>'
-
-        # Save to Supabase (storage + row), best-effort - don't fail the
-        # whole request if this part has an issue
-        if not supabase:
-            result += "<p class='status'>(Not saved to history: SUPABASE_URL / SUPABASE_SERVICE_KEY not set)</p>"
-        else:
-            try:
-                filename = f"{uuid.uuid4().hex}.png"
-                supabase.storage.from_(BUCKET).upload(
-                    filename, image_bytes, {"content-type": "image/png"}
-                )
-                supabase.table("thumbnails").insert({
-                    "prompt": prompt,
-                    "image_path": filename,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                }).execute()
-            except Exception as save_err:
-                result += f"<p class='status'>(Saved image, but history save failed: {save_err})</p>"
-
-        return PAGE.format(prompt=prompt, result=result, history=render_history())
+        client = Client(SPACE, hf_token=HF_TOKEN or None)
+        # The official FLUX.1-schnell Space's predict signature:
+        # (prompt, seed, randomize_seed, width, height, num_inference_steps)
+        space_result = client.predict(
+            prompt,
+            0,      # seed (ignored when randomize_seed=True)
+            True,   # randomize_seed
+            1024,   # width
+            1024,   # height
+            4,      # num_inference_steps
+            api_name="/infer",
+        )
+        # result is typically (filepath, seed) - the Space returns a temp image file
+        image_path = space_result[0] if isinstance(space_result, (list, tuple)) else space_result
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
     except Exception as e:
         return PAGE.format(prompt=prompt, result=f"<p class='status'>ERROR: {e}</p>", history=render_history())
+
+    # Show it immediately
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    result = f'<img src="data:image/png;base64,{b64}" /><a class="btn secondary" download="thumbnail.png" href="data:image/png;base64,{b64}">Download</a>'
+
+    # Save to Supabase (storage + row), best-effort - don't fail the
+    # whole request if this part has an issue
+    if not supabase:
+        result += "<p class='status'>(Not saved to history: SUPABASE_URL / SUPABASE_SERVICE_KEY not set)</p>"
+    else:
+        try:
+            filename = f"{uuid.uuid4().hex}.png"
+            supabase.storage.from_(BUCKET).upload(
+                filename, image_bytes, {"content-type": "image/png"}
+            )
+            supabase.table("thumbnails").insert({
+                "prompt": prompt,
+                "image_path": filename,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }).execute()
+        except Exception as save_err:
+            result += f"<p class='status'>(Saved image, but history save failed: {save_err})</p>"
+
+    return PAGE.format(prompt=prompt, result=result, history=render_history())
 
 
 @app.get("/health")
