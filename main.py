@@ -139,7 +139,7 @@ def analyze_script(script_text: str) -> dict:
 
 def generate_background_bytes(prompt: str) -> bytes:
     """Calls the free official FLUX.1-schnell Space and returns raw PNG bytes."""
-    client = Client(SPACE, hf_token=HF_TOKEN or None)
+    client = Client(SPACE, token=HF_TOKEN or None)
     space_result = client.predict(
         prompt, 0, True, 1024, 1024, 4, api_name="/infer",
     )
