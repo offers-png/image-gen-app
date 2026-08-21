@@ -271,8 +271,13 @@ PAGE = """
     .grid img {{ margin-top: 0; aspect-ratio: 1; object-fit: cover; }}
     .grid figcaption {{ font-size: 11px; color: #777; margin-top: 2px; white-space: nowrap;
                 overflow: hidden; text-overflow: ellipsis; }}
-    .dl-link {{ display: block; font-size: 11px; color: #111; text-decoration: underline;
-                margin-top: 2px; }}
+    .actions {{ display: flex; align-items: center; gap: 8px; margin-top: 4px; }}
+    .actions a {{ font-size: 11px; color: #111; text-decoration: underline; }}
+    .inline-form {{ display: inline; margin: 0; }}
+    .star-btn {{ background: none; border: none; font-size: 16px; color: #bbb; cursor: pointer; padding: 0; line-height: 1; }}
+    .star-btn.fav {{ color: #d9a520; }}
+    .del-btn {{ background: none; border: none; font-size: 11px; color: #a33; text-decoration: underline;
+                cursor: pointer; padding: 0; font-family: inherit; }}
   </style>
 </head>
 <body>
@@ -298,13 +303,14 @@ PAGE = """
 """
 
 
-def render_history(limit=12):
+def render_history(limit=24):
     if not supabase:
         return "<p class='status'>History disabled: SUPABASE_URL / SUPABASE_SERVICE_KEY not set on the server.</p>"
     try:
         rows = (
             supabase.table("thumbnails")
             .select("*")
+            .order("favorited", desc=True)
             .order("created_at", desc=True)
             .limit(limit)
             .execute()
@@ -318,12 +324,24 @@ def render_history(limit=12):
     for row in rows:
         public_url = supabase.storage.from_(BUCKET).get_public_url(row["image_path"])
         download_url = f"/download/{row['image_path']}"
+        row_id = row["id"]
         caption = row["prompt"][:40]
+        is_fav = row.get("favorited", False)
+        star = "&#9733;" if is_fav else "&#9734;"  # filled vs outline star
         items.append(
             f'<figure>'
             f'<a href="{public_url}" target="_blank"><img src="{public_url}"></a>'
             f'<figcaption>{caption}</figcaption>'
-            f'<a href="{download_url}" class="dl-link">Download</a>'
+            f'<div class="actions">'
+            f'<a href="{download_url}">Download</a>'
+            f'<form method="post" action="/favorite/{row_id}" class="inline-form">'
+            f'<button type="submit" class="star-btn {"fav" if is_fav else ""}">{star}</button>'
+            f'</form>'
+            f'<form method="post" action="/delete/{row_id}" class="inline-form" '
+            f'onsubmit="return confirm(\'Delete this image? This can\\\'t be undone.\');">'
+            f'<button type="submit" class="del-btn">Delete</button>'
+            f'</form>'
+            f'</div>'
             f'</figure>'
         )
     return "\n".join(items)
@@ -345,6 +363,36 @@ def download_image(filename: str):
         media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.post("/favorite/{row_id}")
+def toggle_favorite(row_id: str):
+    if not supabase:
+        return RedirectResponse(url="/", status_code=303)
+    try:
+        row = supabase.table("thumbnails").select("favorited").eq("id", row_id).single().execute().data
+        new_value = not row.get("favorited", False)
+        supabase.table("thumbnails").update({"favorited": new_value}).eq("id", row_id).execute()
+    except Exception as e:
+        print(f"WARNING: favorite toggle failed for {row_id}: {e}")
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/delete/{row_id}")
+def delete_thumbnail(row_id: str):
+    if not supabase:
+        return RedirectResponse(url="/", status_code=303)
+    try:
+        row = supabase.table("thumbnails").select("image_path").eq("id", row_id).single().execute().data
+        if row:
+            try:
+                supabase.storage.from_(BUCKET).remove([row["image_path"]])
+            except Exception as storage_err:
+                print(f"WARNING: could not remove storage file for {row_id}: {storage_err}")
+            supabase.table("thumbnails").delete().eq("id", row_id).execute()
+    except Exception as e:
+        print(f"WARNING: delete failed for {row_id}: {e}")
+    return RedirectResponse(url="/", status_code=303)
 
 
 @app.get("/", response_class=HTMLResponse)
