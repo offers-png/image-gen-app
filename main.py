@@ -78,7 +78,7 @@ PAGE = """
 
 def render_history(limit=12):
     if not supabase:
-        return ""
+        return "<p class='status'>History disabled: SUPABASE_URL / SUPABASE_SERVICE_KEY not set on the server.</p>"
     try:
         rows = (
             supabase.table("thumbnails")
@@ -88,8 +88,10 @@ def render_history(limit=12):
             .execute()
             .data
         )
-    except Exception:
-        return ""
+    except Exception as e:
+        return f"<p class='status'>History error: {e}</p>"
+    if not rows:
+        return "<p class='status'>No saved generations yet.</p>"
     items = []
     for row in rows:
         public_url = supabase.storage.from_(BUCKET).get_public_url(row["image_path"])
@@ -132,7 +134,9 @@ def generate(prompt: str = Form(...)):
 
         # Save to Supabase (storage + row), best-effort - don't fail the
         # whole request if this part has an issue
-        if supabase:
+        if not supabase:
+            result += "<p class='status'>(Not saved to history: SUPABASE_URL / SUPABASE_SERVICE_KEY not set)</p>"
+        else:
             try:
                 filename = f"{uuid.uuid4().hex}.png"
                 supabase.storage.from_(BUCKET).upload(
