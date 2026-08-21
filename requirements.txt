@@ -1,6 +1,7 @@
 fastapi
 uvicorn
-huggingface_hub
+gradio_client
 python-multipart
 Pillow
 supabase
+
