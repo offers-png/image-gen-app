@@ -55,6 +55,19 @@
   input:focus, select:focus{outline:2px solid var(--rust); border-color:var(--rust);}
   .row{display:flex; gap:12px;}
   .row > div{flex:1;}
+  .swatches{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
+  .swatch{
+    width:44px; height:44px; border-radius:6px; cursor:pointer;
+    border:2px solid transparent; position:relative; flex-shrink:0;
+  }
+  .swatch.active{border-color:#fff;}
+  .swatch span{
+    position:absolute; bottom:-18px; left:50%; transform:translateX(-50%);
+    font-size:9px; color:#8a8a84; white-space:nowrap;
+  }
+  #wordCount{font-size:12px; margin-top:4px;}
+  #wordCount.ok{color:#7fbf7f;}
+  #wordCount.warn{color:#D9531E;}
   #canvasHolder{
     margin-top:24px;
     border:1px solid #333;
@@ -82,13 +95,18 @@
 </head>
 <body>
 <div class="wrap">
-  <div style="margin-bottom:10px;"><a href="/" style="color:#9a9a94; font-size:13px; text-decoration:underline;">&larr; AI Image Generator</a></div>
+  <div style="margin-bottom:10px;">
+    <a href="/" style="color:#9a9a94; font-size:13px; text-decoration:underline;">&larr; AI Image Generator</a>
+    &nbsp;|&nbsp;
+    <a href="/auto" style="color:#9a9a94; font-size:13px; text-decoration:underline;">Auto-Generate from Script &rarr;</a>
+  </div>
   <h1>THINGS THAT REALLY MATTER</h1>
   <div class="sub">The Truth. No Filter. — Thumbnail Generator</div>
   <div class="hint" style="margin-bottom:8px;">Tip: generate a background image on the AI Image Generator page, download it, then upload it below as your background photo.</div>
 
-  <label for="title">Episode title (keep it short — 3-6 words hits hardest)</label>
+  <label for="title">Episode title (3-5 words hits hardest — that's the researched sweet spot)</label>
   <input type="text" id="title" maxlength="60" value="INSURANCE IS RIPPING YOU OFF">
+  <div id="wordCount" class="ok">4 words</div>
 
   <div class="row">
     <div>
@@ -103,16 +121,20 @@
       </select>
     </div>
     <div>
-      <label for="style">Background mood (used if no photo)</label>
+      <label for="style">Color theme (used if no photo, and tints the accent/text either way)</label>
       <select id="style">
         <option value="dark">Dark / Serious</option>
         <option value="rust">Rust / Angry</option>
         <option value="steel">Steel / Cold</option>
+        <option value="shock">Shock — Yellow/Violet</option>
+        <option value="alert">Alert — Cyan/Crimson</option>
+        <option value="bold">Bold — Orange/Blue</option>
       </select>
     </div>
   </div>
+  <div class="swatches" id="swatches"></div>
 
-  <label for="photo">Background photo (optional — makes it pop way more)</label>
+  <label for="photo" style="margin-top:28px;">Background photo (optional — makes it pop way more)</label>
   <input type="file" id="photo" accept="image/*">
   <div class="hint" id="photoHint">No photo yet — pick one from your gallery or camera. A relevant, striking photo beats plain color every time.</div>
   <button id="clearPhoto" type="button" style="background:#333; margin-top:8px;">REMOVE PHOTO</button>
@@ -122,7 +144,7 @@
   </div>
 
   <button id="download">DOWNLOAD THUMBNAIL (PNG)</button>
-  <div class="hint">1280×720 — sized for YouTube. Edit fields above, it redraws live.</div>
+  <div class="hint">1280×720 — sized for YouTube. Text sits in the safe zone (upper two-thirds, clear of the bottom-right timestamp badge). Edit fields above, it redraws live.</div>
 </div>
 
 <script>
@@ -131,12 +153,36 @@ const ctx = canvas.getContext('2d');
 const titleInput = document.getElementById('title');
 const tagSelect = document.getElementById('tag');
 const styleSelect = document.getElementById('style');
+const wordCountEl = document.getElementById('wordCount');
+const swatchesEl = document.getElementById('swatches');
 
+// Palettes built from complementary color-wheel pairs (research: yellow/violet,
+// red/cyan, blue/orange consistently test highest for contrast + attention).
 const palettes = {
-  dark:  { bg1:'#161616', bg2:'#0a0a0a', accent:'#B4231A' },
-  rust:  { bg1:'#3a1408', bg2:'#150502', accent:'#D9531E' },
-  steel: { bg1:'#23272a', bg2:'#0d0f10', accent:'#5AA9C4' }
+  dark:  { bg1:'#161616', bg2:'#0a0a0a', accent:'#B4231A', text:'#EDEAE3', stroke:'#000000' },
+  rust:  { bg1:'#3a1408', bg2:'#150502', accent:'#D9531E', text:'#EDEAE3', stroke:'#000000' },
+  steel: { bg1:'#23272a', bg2:'#0d0f10', accent:'#5AA9C4', text:'#EDEAE3', stroke:'#000000' },
+  shock: { bg1:'#2a1a3a', bg2:'#120a1c', accent:'#F2C230', text:'#F2C230', stroke:'#1a0f28' },
+  alert: { bg1:'#1a2e30', bg2:'#0a1415', accent:'#3ED6D6', text:'#FFFFFF', stroke:'#7a1414' },
+  bold:  { bg1:'#0d2438', bg2:'#061018', accent:'#F2782F', text:'#FFFFFF', stroke:'#0a1a2a' },
 };
+
+// Small swatch previews so the theme choice is visual, not just a dropdown label
+function renderSwatches() {
+  swatchesEl.innerHTML = '';
+  Object.entries(palettes).forEach(([key, p]) => {
+    const sw = document.createElement('div');
+    sw.className = 'swatch' + (styleSelect.value === key ? ' active' : '');
+    sw.style.background = `linear-gradient(135deg, ${p.bg1}, ${p.accent})`;
+    sw.title = key;
+    sw.addEventListener('click', () => {
+      styleSelect.value = key;
+      renderSwatches();
+      draw();
+    });
+    swatchesEl.appendChild(sw);
+  });
+}
 
 let bgImage = null;
 
@@ -183,7 +229,9 @@ function drawCoverImage(ctx, img, x, y, w, h) {
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
-function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+// Draws each line twice - thick stroke pass first, fill pass on top - so the
+// title stays legible over any background, any photo, any color.
+function wrapTextOutlined(ctx, text, x, y, maxWidth, lineHeight, strokeStyle, fillStyle, strokeWidth) {
   const words = text.split(' ');
   let line = '';
   const lines = [];
@@ -198,23 +246,41 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
   }
   lines.push(line.trim());
   const startY = y - ((lines.length - 1) * lineHeight) / 2;
-  lines.forEach((l, i) => ctx.fillText(l.toUpperCase(), x, startY + i * lineHeight));
+  ctx.lineJoin = 'round';
+  lines.forEach((l, i) => {
+    const ly = startY + i * lineHeight;
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeText(l.toUpperCase(), x, ly);
+    ctx.fillStyle = fillStyle;
+    ctx.fillText(l.toUpperCase(), x, ly);
+  });
   return lines.length;
+}
+
+function updateWordCount() {
+  const words = titleInput.value.trim().split(/\s+/).filter(Boolean);
+  const n = words.length;
+  wordCountEl.textContent = `${n} word${n === 1 ? '' : 's'}`;
+  wordCountEl.className = (n >= 3 && n <= 5) ? 'ok' : 'warn';
+  if (n > 5) wordCountEl.textContent += ' — research shows 3-5 words performs best, trim it down';
+  if (n < 3) wordCountEl.textContent += ' — a bit short, most winners use 3-5 words';
 }
 
 function draw() {
   const p = palettes[styleSelect.value];
   const title = titleInput.value || 'YOUR TOPIC HERE';
   const tag = tagSelect.value;
+  updateWordCount();
 
   if (bgImage) {
     // photo background, cropped to fill
     drawCoverImage(ctx, bgImage, 0, 0, 1280, 720);
-    // dark overlay so text stays readable
+    // dark overlay so text stays readable - heavier at top where the title sits
     const ov = ctx.createLinearGradient(0,0,0,720);
-    ov.addColorStop(0, 'rgba(0,0,0,0.55)');
-    ov.addColorStop(0.45, 'rgba(0,0,0,0.35)');
-    ov.addColorStop(1, 'rgba(0,0,0,0.75)');
+    ov.addColorStop(0, 'rgba(0,0,0,0.65)');
+    ov.addColorStop(0.5, 'rgba(0,0,0,0.30)');
+    ov.addColorStop(1, 'rgba(0,0,0,0.70)');
     ctx.fillStyle = ov;
     ctx.fillRect(0,0,1280,720);
     // color tint to match brand
@@ -257,25 +323,25 @@ function draw() {
   ctx.fillText(tagText, 80+tagPadX, 90+29);
 
   // show name small
-  ctx.fillStyle = 'rgba(237,234,227,0.55)';
+  ctx.fillStyle = 'rgba(237,234,227,0.6)';
   ctx.font = '700 26px Archivo';
   ctx.fillText('THINGS THAT REALLY MATTER', 80, 200);
 
-  // main title
-  ctx.fillStyle = '#EDEAE3';
-  ctx.font = '900 96px Anton';
+  // main title - upper two-thirds (safe zone), outlined for pop on any background
+  ctx.font = '900 100px Anton';
   ctx.textBaseline = 'alphabetic';
-  const lineCount = wrapText(ctx, title, 80, 420, 1120, 100);
+  wrapTextOutlined(ctx, title, 80, 400, 1120, 106, p.stroke, p.text, 14);
 
-  // bottom strip
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  // bottom strip - kept clear of the bottom-right timestamp badge zone
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
   ctx.fillRect(0,650,1280,70);
   ctx.fillStyle = p.accent;
   ctx.font = '700 28px Archivo';
   ctx.fillText('THE TRUTH. NO FILTER.', 80, 695);
 }
 
-[titleInput, tagSelect, styleSelect].forEach(el => el.addEventListener('input', draw));
+[titleInput, tagSelect, styleSelect].forEach(el => el.addEventListener('input', () => { renderSwatches(); draw(); }));
+renderSwatches();
 draw();
 
 document.getElementById('download').addEventListener('click', () => {
