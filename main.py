@@ -34,6 +34,22 @@ FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
 FONT_TITLE = os.path.join(FONT_DIR, "Anton-Regular.ttf")
 FONT_BODY = os.path.join(FONT_DIR, "ArchivoBlack-Regular.ttf")
 
+
+def safe_font(path, size):
+    """Loads a TTF font, falling back to Pillow's built-in default if the
+    file is missing - so a font upload issue degrades the look instead of
+    breaking thumbnail generation entirely."""
+    try:
+        return ImageFont.truetype(path, size)
+    except Exception:
+        try:
+            listing = os.listdir(FONT_DIR)
+        except Exception as list_err:
+            listing = f"<could not list {FONT_DIR}: {list_err}>"
+        print(f"WARNING: could not load font at {path}. "
+              f"Contents of {FONT_DIR}: {listing}")
+        return ImageFont.load_default(size=size)
+
 # Same palettes as the client-side template tool, kept in sync by hand
 PALETTES = {
     "dark":  {"bg1": (22, 22, 22),  "bg2": (10, 10, 10),  "accent": (180, 35, 26),  "text": (237, 234, 227), "stroke": (0, 0, 0)},
@@ -202,19 +218,19 @@ def composite_thumbnail(background_bytes: bytes, title: str, tag: str, theme: st
     draw.rectangle([0, 0, 18, H], fill=p["accent"])
 
     # tag chip
-    tag_font = ImageFont.truetype(FONT_BODY, 30)
+    tag_font = safe_font(FONT_BODY, 30)
     tag_pad_x = 22
     tag_w = draw.textlength(tag, font=tag_font) + tag_pad_x * 2
     draw.rectangle([80, 90, 80 + tag_w, 90 + 58], fill=p["accent"])
     draw.text((80 + tag_pad_x, 90 + 15), tag, font=tag_font, fill=(10, 10, 10))
 
     # show name small
-    show_font = ImageFont.truetype(FONT_BODY, 22)
+    show_font = safe_font(FONT_BODY, 22)
     draw.text((80, 190), "THINGS THAT REALLY MATTER", font=show_font,
               fill=(237, 234, 227))
 
     # main title - outlined, upper safe zone
-    title_font = ImageFont.truetype(FONT_TITLE, 92)
+    title_font = safe_font(FONT_TITLE, 92)
     lines = wrap_text(draw, title.upper(), title_font, 1120)
     line_height = 100
     start_y = 400 - ((len(lines) - 1) * line_height) // 2
@@ -226,7 +242,7 @@ def composite_thumbnail(background_bytes: bytes, title: str, tag: str, theme: st
 
     # bottom strip
     draw.rectangle([0, 650, W, 720], fill=(0, 0, 0))
-    strip_font = ImageFont.truetype(FONT_BODY, 24)
+    strip_font = safe_font(FONT_BODY, 24)
     draw.text((80, 663), "THE TRUTH. NO FILTER.", font=strip_font, fill=p["accent"])
 
     buf = io.BytesIO()
