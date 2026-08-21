@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Things That Really Matter — Thumbnail Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#111111;
+    --paper:#EDEAE3;
+    --blood:#B4231A;
+    --rust:#D9531E;
+    --steel:#3A3E3F;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--ink);
+    font-family:'Archivo',sans-serif;
+    color:var(--paper);
+    padding:24px 16px 60px;
+  }
+  .wrap{max-width:760px;margin:0 auto;}
+  h1{
+    font-family:'Anton',sans-serif;
+    font-size:28px;
+    letter-spacing:0.5px;
+    margin:0 0 4px;
+    color:var(--paper);
+  }
+  .sub{
+    color:#9a9a94;
+    font-size:14px;
+    margin-bottom:24px;
+  }
+  label{
+    display:block;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:1px;
+    color:#b8b6ae;
+    margin:16px 0 6px;
+  }
+  input[type=text], select{
+    width:100%;
+    padding:12px 14px;
+    background:#1c1c1c;
+    border:1px solid #3a3a3a;
+    color:var(--paper);
+    font-family:'Archivo',sans-serif;
+    font-size:16px;
+    border-radius:4px;
+  }
+  input:focus, select:focus{outline:2px solid var(--rust); border-color:var(--rust);}
+  .row{display:flex; gap:12px;}
+  .row > div{flex:1;}
+  #canvasHolder{
+    margin-top:24px;
+    border:1px solid #333;
+    border-radius:6px;
+    overflow:hidden;
+    line-height:0;
+  }
+  canvas{width:100%; height:auto; display:block;}
+  button{
+    margin-top:16px;
+    width:100%;
+    padding:16px;
+    background:var(--blood);
+    color:#fff;
+    border:none;
+    border-radius:4px;
+    font-family:'Anton',sans-serif;
+    font-size:16px;
+    letter-spacing:1px;
+    cursor:pointer;
+  }
+  button:active{background:#8f1b14;}
+  .hint{font-size:12px; color:#8a8a84; margin-top:8px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="margin-bottom:10px;"><a href="/" style="color:#9a9a94; font-size:13px; text-decoration:underline;">&larr; AI Image Generator</a></div>
+  <h1>THINGS THAT REALLY MATTER</h1>
+  <div class="sub">The Truth. No Filter. — Thumbnail Generator</div>
+  <div class="hint" style="margin-bottom:8px;">Tip: generate a background image on the AI Image Generator page, download it, then upload it below as your background photo.</div>
+
+  <label for="title">Episode title (keep it short — 3-6 words hits hardest)</label>
+  <input type="text" id="title" maxlength="60" value="INSURANCE IS RIPPING YOU OFF">
+
+  <div class="row">
+    <div>
+      <label for="tag">Topic tag</label>
+      <select id="tag">
+        <option>MONEY</option>
+        <option>RELIGION</option>
+        <option>POLITICS</option>
+        <option>SYSTEM</option>
+        <option>HUMANITY</option>
+        <option>CULTURE</option>
+      </select>
+    </div>
+    <div>
+      <label for="style">Background mood (used if no photo)</label>
+      <select id="style">
+        <option value="dark">Dark / Serious</option>
+        <option value="rust">Rust / Angry</option>
+        <option value="steel">Steel / Cold</option>
+      </select>
+    </div>
+  </div>
+
+  <label for="photo">Background photo (optional — makes it pop way more)</label>
+  <input type="file" id="photo" accept="image/*">
+  <div class="hint" id="photoHint">No photo yet — pick one from your gallery or camera. A relevant, striking photo beats plain color every time.</div>
+  <button id="clearPhoto" type="button" style="background:#333; margin-top:8px;">REMOVE PHOTO</button>
+
+  <div id="canvasHolder">
+    <canvas id="thumb" width="1280" height="720"></canvas>
+  </div>
+
+  <button id="download">DOWNLOAD THUMBNAIL (PNG)</button>
+  <div class="hint">1280×720 — sized for YouTube. Edit fields above, it redraws live.</div>
+</div>
+
+<script>
+const canvas = document.getElementById('thumb');
+const ctx = canvas.getContext('2d');
+const titleInput = document.getElementById('title');
+const tagSelect = document.getElementById('tag');
+const styleSelect = document.getElementById('style');
+
+const palettes = {
+  dark:  { bg1:'#161616', bg2:'#0a0a0a', accent:'#B4231A' },
+  rust:  { bg1:'#3a1408', bg2:'#150502', accent:'#D9531E' },
+  steel: { bg1:'#23272a', bg2:'#0d0f10', accent:'#5AA9C4' }
+};
+
+let bgImage = null;
+
+const photoInput = document.getElementById('photo');
+const photoHint = document.getElementById('photoHint');
+photoInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const img = new Image();
+    img.onload = () => {
+      bgImage = img;
+      photoHint.textContent = 'Photo loaded — redrawing with dark overlay for readability.';
+      draw();
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('clearPhoto').addEventListener('click', () => {
+  bgImage = null;
+  photoInput.value = '';
+  photoHint.textContent = 'No photo yet — pick one from your gallery or camera. A relevant, striking photo beats plain color every time.';
+  draw();
+});
+
+function drawCoverImage(ctx, img, x, y, w, h) {
+  const imgRatio = img.width / img.height;
+  const boxRatio = w / h;
+  let sx, sy, sw, sh;
+  if (imgRatio > boxRatio) {
+    sh = img.height;
+    sw = sh * boxRatio;
+    sx = (img.width - sw) / 2;
+    sy = 0;
+  } else {
+    sw = img.width;
+    sh = sw / boxRatio;
+    sx = 0;
+    sy = (img.height - sh) / 2;
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(' ');
+  let line = '';
+  const lines = [];
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    if (ctx.measureText(testLine).width > maxWidth && n > 0) {
+      lines.push(line.trim());
+      line = words[n] + ' ';
+    } else {
+      line = testLine;
+    }
+  }
+  lines.push(line.trim());
+  const startY = y - ((lines.length - 1) * lineHeight) / 2;
+  lines.forEach((l, i) => ctx.fillText(l.toUpperCase(), x, startY + i * lineHeight));
+  return lines.length;
+}
+
+function draw() {
+  const p = palettes[styleSelect.value];
+  const title = titleInput.value || 'YOUR TOPIC HERE';
+  const tag = tagSelect.value;
+
+  if (bgImage) {
+    // photo background, cropped to fill
+    drawCoverImage(ctx, bgImage, 0, 0, 1280, 720);
+    // dark overlay so text stays readable
+    const ov = ctx.createLinearGradient(0,0,0,720);
+    ov.addColorStop(0, 'rgba(0,0,0,0.55)');
+    ov.addColorStop(0.45, 'rgba(0,0,0,0.35)');
+    ov.addColorStop(1, 'rgba(0,0,0,0.75)');
+    ctx.fillStyle = ov;
+    ctx.fillRect(0,0,1280,720);
+    // color tint to match brand
+    ctx.fillStyle = p.accent;
+    ctx.globalAlpha = 0.12;
+    ctx.fillRect(0,0,1280,720);
+    ctx.globalAlpha = 1;
+  } else {
+    // solid gradient background
+    const grad = ctx.createLinearGradient(0,0,1280,720);
+    grad.addColorStop(0, p.bg1);
+    grad.addColorStop(1, p.bg2);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,1280,720);
+
+    // grain-ish diagonal texture lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 2;
+    for(let i=-720;i<1280;i+=26){
+      ctx.beginPath();
+      ctx.moveTo(i,0);
+      ctx.lineTo(i+720,720);
+      ctx.stroke();
+    }
+  }
+
+  // left accent bar
+  ctx.fillStyle = p.accent;
+  ctx.fillRect(0,0,18,720);
+
+  // tag chip
+  ctx.font = '700 34px Archivo';
+  const tagText = tag;
+  const tagPadX = 22;
+  const tagW = ctx.measureText(tagText).width + tagPadX*2;
+  ctx.fillStyle = p.accent;
+  ctx.fillRect(80, 90, tagW, 58);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(tagText, 80+tagPadX, 90+29);
+
+  // show name small
+  ctx.fillStyle = 'rgba(237,234,227,0.55)';
+  ctx.font = '700 26px Archivo';
+  ctx.fillText('THINGS THAT REALLY MATTER', 80, 200);
+
+  // main title
+  ctx.fillStyle = '#EDEAE3';
+  ctx.font = '900 96px Anton';
+  ctx.textBaseline = 'alphabetic';
+  const lineCount = wrapText(ctx, title, 80, 420, 1120, 100);
+
+  // bottom strip
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(0,650,1280,70);
+  ctx.fillStyle = p.accent;
+  ctx.font = '700 28px Archivo';
+  ctx.fillText('THE TRUTH. NO FILTER.', 80, 695);
+}
+
+[titleInput, tagSelect, styleSelect].forEach(el => el.addEventListener('input', draw));
+draw();
+
+document.getElementById('download').addEventListener('click', () => {
+  const link = document.createElement('a');
+  const safeName = (titleInput.value || 'thumbnail').toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,40);
+  link.download = `ttrm-${safeName}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+});
+</script>
+</body>
+</html>

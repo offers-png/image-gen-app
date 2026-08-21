@@ -3,3 +3,4 @@ uvicorn
 huggingface_hub
 python-multipart
 Pillow
+supabase
