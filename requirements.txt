@@ -1,7 +1,15 @@
 fastapi
+
 uvicorn
+
 gradio_client
+
 python-multipart
+
 Pillow
+
 supabase
+
+anthropic
+
 
