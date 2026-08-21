@@ -14,7 +14,7 @@ import base64
 import uuid
 from datetime import datetime, timezone
 from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from gradio_client import Client
 from supabase import create_client
 from anthropic import Anthropic
@@ -271,6 +271,8 @@ PAGE = """
     .grid img {{ margin-top: 0; aspect-ratio: 1; object-fit: cover; }}
     .grid figcaption {{ font-size: 11px; color: #777; margin-top: 2px; white-space: nowrap;
                 overflow: hidden; text-overflow: ellipsis; }}
+    .dl-link {{ display: block; font-size: 11px; color: #111; text-decoration: underline;
+                margin-top: 2px; }}
   </style>
 </head>
 <body>
@@ -315,9 +317,34 @@ def render_history(limit=12):
     items = []
     for row in rows:
         public_url = supabase.storage.from_(BUCKET).get_public_url(row["image_path"])
+        download_url = f"/download/{row['image_path']}"
         caption = row["prompt"][:40]
-        items.append(f'<figure><a href="{public_url}" target="_blank"><img src="{public_url}"></a><figcaption>{caption}</figcaption></figure>')
+        items.append(
+            f'<figure>'
+            f'<a href="{public_url}" target="_blank"><img src="{public_url}"></a>'
+            f'<figcaption>{caption}</figcaption>'
+            f'<a href="{download_url}" class="dl-link">Download</a>'
+            f'</figure>'
+        )
     return "\n".join(items)
+
+
+@app.get("/download/{filename}")
+def download_image(filename: str):
+    """Proxies the image through our own server with a Content-Disposition
+    header, so browsers actually download it instead of just opening the
+    cross-origin Supabase URL in a new tab."""
+    if not supabase:
+        return Response(content=b"History storage not configured.", status_code=503)
+    try:
+        data = supabase.storage.from_(BUCKET).download(filename)
+    except Exception as e:
+        return Response(content=f"Could not fetch image: {e}".encode(), status_code=404)
+    return Response(
+        content=data,
+        media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
