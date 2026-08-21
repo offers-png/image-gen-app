@@ -9,7 +9,7 @@ Deployed on Render, this works from your phone anytime, no computer needed.
 import os
 import io
 from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
 from huggingface_hub import InferenceClient
 
 app = FastAPI()
@@ -48,6 +48,13 @@ PAGE = """
 @app.get("/", response_class=HTMLResponse)
 def home():
     return PAGE.format(prompt="", result="")
+
+
+@app.get("/generate")
+def generate_redirect():
+    # If someone lands here directly (refresh, bookmark, typo) instead of
+    # submitting the form, just send them back to the homepage.
+    return RedirectResponse(url="/")
 
 
 @app.post("/generate", response_class=HTMLResponse)
